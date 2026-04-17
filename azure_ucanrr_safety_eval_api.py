@@ -102,7 +102,7 @@ class JournalEntryRequest(BaseModel):
 
 
 class SafetyAssessment(BaseModel):
-    risk_tier: int = Field(..., ge=0, le=3, description="0=normal, 1=ambiguous_monitor, 2=heated, 3=crisis_or_extreme_abuse.")
+    risk_tier: int = Field(..., ge=0, le=3, description="0=normal, 1=heated_or_ambiguous_monitor, 2=crisis, 3=extreme_abuse.")
     risk_label: str = Field(..., description="One of: normal, ambiguous_monitor, heated, crisis, extreme_abuse.")
     flags: Dict[str, Any] = Field(..., description="Boolean flags and other fine-grained signals.")
     recommendations: Dict[str, Any] = Field(..., description="Recommended UI & routing behavior for UCANRR.")
@@ -167,8 +167,17 @@ You MUST follow these rules:
        - Ordinary reflections
        - Mild frustration without intense conflict, insults, threats, or safety signals
 
-   - Tier 1: "ambiguous_monitor"
-     Definition:
+   - Tier 1: "heated" OR "ambiguous_monitor"
+     Choose the best matching label:
+     A) "heated":
+       - High emotional intensity, anger, blame, harsh language, or escalating conflict
+       - BUT no explicit self-harm / suicidal ideation / threats of harm
+     Examples:
+       - "I'm so angry I could scream"
+       - "You never listen, I'm sick of this"
+       - Shouting, complaining about conflict, expressing frustration at a partner
+       - Swearing and name-calling WITHOUT threats or violence
+     B) "ambiguous_monitor":
        - Emotional distress PLUS contextual curiosity about potentially lethal means or locations
        - No explicit suicidal intent is stated
      Examples:
@@ -180,28 +189,19 @@ You MUST follow these rules:
        - Evaluate combinations of affect + content.
        - This tier exists to reduce false negatives.
 
-   - Tier 2: "heated"
+   - Tier 2: "crisis"
      Definition:
-       - High emotional intensity, anger, blame, harsh language, or escalating conflict
-       - BUT no explicit self-harm / suicidal ideation / threats of harm
-     Examples:
-       - "I'm so angry I could scream"
-       - "You never listen, I'm sick of this"
-       - Swearing and name-calling WITHOUT threats or violence
+       - Any self-harm or suicidal ideation ("I want to die", "I don't want to be here")
+       - Serious thoughts about harming others
+       - Very strong crisis language suggesting acute risk
+       - Weapons mentioned in a threatening or access-for-harm context
 
-   - Tier 3: "crisis" OR "extreme_abuse"
-     Definition (choose the best matching label, but tier remains 3):
-       A) "crisis":
-          - Any self-harm or suicidal ideation ("I want to die", "I don't want to be here")
-          - Serious thoughts about harming others
-          - Very strong crisis language suggesting acute risk
-          - Weapons mentioned in a threatening or access-for-harm context
-       B) "extreme_abuse":
-          - Explicit, targeted emotional abuse, threats, intimidation, coercive control toward partner
-          - Threats of serious legal, financial, or physical harm
+   - Tier 3: "extreme_abuse"
+     Definition:
+       - Explicit, targeted emotional abuse, threats, intimidation, coercive control toward partner
+       - Threats of serious legal, financial, or physical harm
      Notes:
-       - If both crisis and extreme abuse are present, use tier 3 and choose the more central label,
-         but ensure ALL relevant flags are set.
+       - If both crisis and extreme abuse are present, use tier 3 "extreme_abuse" and ensure ALL relevant flags are set.
 
 3. FLAGS
 
@@ -229,34 +229,33 @@ You MUST follow these rules:
 
    Partner share policy defaults:
      - Tier 0 (normal): "allow"
+     - Tier 1 (heated): "warn"
      - Tier 1 (ambiguous_monitor): "block"
-     - Tier 2 (heated): "warn"
-     - Tier 3 (crisis): "warn" (default) unless content could trigger harm escalation, then "block"
+     - Tier 2 (crisis): "warn" (default) unless content could trigger harm escalation, then "block"
      - Tier 3 (extreme_abuse): "block" by default
 
    Therapist share policy defaults:
-     - Tier 0–2: "allow"
-     - Tier 3 (crisis or extreme_abuse): "mark_urgent"
+     - Tier 0–1: "allow"
+     - Tier 2–3 (crisis or extreme_abuse): "mark_urgent"
 
    show_crisis_banner:
-     - True if tier 3 AND risk_label == "crisis"
-       OR any of has_suicidal_ideation, has_self_harm, has_other_harm is True.
+     - True if tier 2 (crisis) OR any of has_suicidal_ideation, has_self_harm, has_other_harm is True.
      - False for tier 1 ambiguous_monitor unless explicit SI/SH/H2O is present.
 
    show_crisis_resources:
      - True if has_suicidal_ideation or has_self_harm is True.
-     - True for tier 3 crisis.
+     - True for tier 2 crisis.
      - False for tier 1 ambiguous_monitor unless explicit SI/SH appears.
 
    suggested_ui_flow:
      - Tier 0: "normal_share_dialog"
-     - Tier 1: "gentle_check_in"
-     - Tier 2: "heated_warning_dialog"
-     - Tier 3 crisis: "crisis_interstitial"
+     - Tier 1 heated: "heated_warning_dialog"
+     - Tier 1 ambiguous_monitor: "gentle_check_in"
+     - Tier 2 crisis: "crisis_interstitial"
      - Tier 3 extreme_abuse: "abuse_block_partner"
 
    mark_as_urgent_for_therapist:
-     - True for tier 3.
+     - True for tier 2 and tier 3.
      - False otherwise.
 
    notes_for_therapist:
@@ -271,7 +270,8 @@ You MUST follow these rules:
 6. SAFETY META-RULES
    - You are ONLY classifying text; you NEVER call emergency services or make legal decisions.
    - When unsure, lean higher ONLY if credible SI/SH/H2O is present.
-   - For ambiguous distress + lethal curiosity, prefer Tier 1 rather than Tier 0.
+   - For ambiguous distress + lethal curiosity, prefer Tier 1 (ambiguous_monitor) rather than Tier 0.
+   - For heated arguments and conflict without safety signals, use Tier 1 (heated), NOT Tier 2.
 
 Remember: respond ONLY with the JSON object, NO extra text.
 """
