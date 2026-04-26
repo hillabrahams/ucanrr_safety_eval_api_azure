@@ -50,7 +50,7 @@ from openai import OpenAI
 # Logging — integrates with Azure Monitor when the App Insights SDK is present
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("ucanrr_safety_api")
 
 try:
@@ -397,7 +397,6 @@ async def analyze_entry(payload: JournalEntryRequest):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured on the server.")
 
     try:
-        logger.info("Safety eval requested. user_hash=%s", payload.user_hash or "anonymous")
         completion = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
@@ -412,8 +411,6 @@ async def analyze_entry(payload: JournalEntryRequest):
 
         raw_content = completion.choices[0].message.content
         assessment_dict = json.loads(raw_content)
-        logger.info("Safety eval complete. risk_tier=%s risk_label=%s",
-                    assessment_dict.get("risk_tier"), assessment_dict.get("risk_label"))
 
     except Exception as e:
         logger.exception("OpenAI call failed: %s", e)
