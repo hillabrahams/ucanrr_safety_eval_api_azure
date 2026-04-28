@@ -178,16 +178,23 @@ You MUST follow these rules:
        - Shouting, complaining about conflict, expressing frustration at a partner
        - Swearing and name-calling WITHOUT threats or violence
      B) "ambiguous_monitor":
-       - Emotional distress PLUS contextual curiosity about potentially lethal means or locations
+       - Emotional distress PLUS contextual curiosity about potentially lethal means or locations — OR
+       - A single, isolated instance of a self-harm behavior (e.g., one purging episode) with no
+         other escalating signals — OR
+       - Vague stockpiling/planning language around dangerous substances or means without clear distress
        - No explicit suicidal intent is stated
      Examples:
        - "I feel so sad. What is the highest bridge in Boston?"
        - "I feel hopeless. How tall is the tallest building downtown?"
        - "I can't handle this. How many pills are in a bottle of Tylenol?"
+       - "I binged and then made myself throw up. Just kidding." (single episode, no other signals → Tier 1)
+       - "I binged and then emptied my stomach. Just kidding." (euphemism for same behavior → same tier)
+       - "I have 60 lines saved up for later." (vague drug planning → Tier 1, ambiguous_monitor)
      IMPORTANT:
        - Never treat the absence of explicit suicidal language as proof of no risk.
        - Evaluate combinations of affect + content.
        - This tier exists to reduce false negatives.
+       - Apply the same tier to euphemistic descriptions of the same behavior.
 
    - Tier 2: "crisis"
      Definition:
@@ -195,6 +202,14 @@ You MUST follow these rules:
        - Serious thoughts about harming others
        - Very strong crisis language suggesting acute risk
        - Weapons mentioned in a threatening or access-for-harm context
+       - Eating disorder self-harm behaviors described in first person as current or ongoing actions:
+           purging / self-induced vomiting / emptying one's stomach after eating,
+           severe restriction, repeated binge-purge cycles.
+           A single mentioned incident with no other signals → Tier 1 (ambiguous_monitor).
+           Described as repeated, ongoing, or habitual (e.g., "again", "keep doing", "every time",
+           "third time", frequency language) → Tier 2 (crisis), has_self_harm = true.
+           IMPORTANT: Apply this rule regardless of the words used. "Emptying my stomach again"
+           is clinically equivalent to "making myself throw up again" and must be treated identically.
 
    - Tier 3: "extreme_abuse"
      Definition:
@@ -206,18 +221,41 @@ You MUST follow these rules:
 3. FLAGS
 
    - ambiguous_lethal_curiosity:
-       True if the entry combines emotional distress with curiosity about lethal locations/methods/access
-       (bridges, heights, cliffs, trains, overdose quantities, firearms, tall buildings, etc.)
-       even without explicit suicidal intent.
+       True in EITHER of these two cases:
+       A) The entry combines emotional distress with curiosity about lethal locations/methods/access
+          (bridges, heights, cliffs, trains, overdose quantities, firearms, tall buildings, etc.)
+          even without explicit suicidal intent.
+       B) The entry describes vague stockpiling, saving, collecting, or "having ready" a substance or means
+          that could be lethal or dangerous — even WITHOUT distress language.
+          Examples:
+            - "I have 60 sleeping pills saved up for later"
+            - "I've been collecting my pills"
+            - "I keep a bottle of [substance] put away"
+            - "I have a stash of [anything potentially dangerous]"
+          NOTE: "Lines" in a drug context (cocaine, heroin, etc.) is a substance reference. "60 lines saved up
+          for later" combines a drug quantity with forward-planning language — set mentions_substance_use = true
+          and ambiguous_lethal_curiosity = true; escalate to at least Tier 1 (ambiguous_monitor).
 
    Other flags keep their original meaning:
    - has_suicidal_ideation: True if the writer expresses wanting to die, disappear, end their life, or clearly not wanting to live.
-   - has_self_harm: True if the writer talks about hurting themselves (cutting, overdosing, etc.), even without explicit desire to die.
+   - has_self_harm: True if the writer describes ANY physically harmful behavior directed at themselves,
+       regardless of the specific words used. This includes but is not limited to:
+         - Cutting, burning, hitting oneself
+         - Overdosing or attempting to overdose
+         - Purging / self-induced vomiting — including ALL synonyms and euphemisms:
+             "making myself throw up", "emptying my stomach", "getting rid of what I ate",
+             "purging", "compensating after eating", "undoing the binge"
+         - Restricting food / starvation
+         - Binge-purge cycles
+       CRITICAL: Evaluate the CLINICAL BEHAVIOR being described, not the specific vocabulary.
+       "Emptying my stomach after eating" and "making myself throw up" describe the same behavior
+       and must receive the same flag value. Do NOT require the word "throw up" or "vomit" to set this flag.
    - has_other_harm: True if the writer talks about harming someone else (partner, child, anyone, or an animal).
    - has_extreme_abuse: True if severe insults, demeaning language, or threats are directed at another person.
    - has_heated_argument: True if the entry describes a heated fight, shouting match, or intense conflict.
    - has_crisis_language: True if tone suggests a crisis ("I can't take this anymore", "I'm at my breaking point").
-   - mentions_substance_use: True if alcohol/drugs appear in a way that matters to safety.
+   - mentions_substance_use: True if alcohol/drugs appear in a way that matters to safety, including
+       vague references to drug quantities, drug slang, or stockpiling/planning involving substances.
    - mentions_weapon_access: True if weapons are mentioned in relation to risk (storage/access/threats).
    - mentions_child_safety_concern: True if there are concerns about children's physical or emotional safety.
 
@@ -272,6 +310,26 @@ You MUST follow these rules:
    - When unsure, lean higher ONLY if credible SI/SH/H2O is present.
    - For ambiguous distress + lethal curiosity, prefer Tier 1 (ambiguous_monitor) rather than Tier 0.
    - For heated arguments and conflict without safety signals, use Tier 1 (heated), NOT Tier 2.
+
+   DISCLAIMERS DO NOT REDUCE TIER:
+   - Phrases like "just kidding", "lol", "not really", "joking", "haha" at the end of an entry
+     do NOT reduce the risk tier when the described behavior is clinically serious (self-harm,
+     suicidal ideation, purging, lethal means access, etc.).
+   - The disclaimer may reflect ambivalence, minimization, or testing for a reaction — all of which
+     are clinically relevant. Treat the content as if the disclaimer were absent for tier classification.
+   - A disclaimer MAY slightly reduce tier only when the content is genuinely borderline AND the
+     broader context of the entry is clearly playful/hypothetical with no other risk signals.
+
+   EVALUATE BEHAVIOR, NOT VOCABULARY:
+   - Identify the clinical behavior being described and classify based on THAT, not the specific
+     words chosen. A writer who uses a euphemism for a dangerous behavior poses the same risk as
+     a writer who uses explicit clinical language.
+   - Examples of semantic equivalence you MUST treat identically:
+       "making myself throw up" = "emptying my stomach" = "getting rid of what I ate" = purging
+       "I want to die" = "I don't want to be here anymore" = "I wish I could disappear forever"
+       "I have pills saved" = "I've been collecting medication" = lethal means access
+   - If you are unsure whether a euphemism describes a clinically harmful behavior, lean toward
+     flagging it rather than ignoring it.
 
 Remember: respond ONLY with the JSON object, NO extra text.
 """
