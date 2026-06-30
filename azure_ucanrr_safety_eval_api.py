@@ -414,7 +414,7 @@ _default_origins = [
     "https://ucanrr.com",
     "https://www.ucanrr.com",
     "https://ucanrr.ngrok-free.dev",
-    "https://ucanrr-api.azurewebsites.net",   # <-- replace with your actual Azure URL
+    "https://safetyapi-c6cqctbghub5f5d8.canadacentral-01.azurewebsites.net",   # <-- replace with your actual Azure URL
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
