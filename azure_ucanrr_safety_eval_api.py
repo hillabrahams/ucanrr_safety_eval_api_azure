@@ -50,7 +50,7 @@ from openai import OpenAI
 # Logging — integrates with Azure Monitor when the App Insights SDK is present
 # ---------------------------------------------------------------------------
 
-logging.basicConfig(level=logging.WARNING)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ucanrr_safety_api")
 
 try:
@@ -102,7 +102,7 @@ class JournalEntryRequest(BaseModel):
 
 
 class SafetyAssessment(BaseModel):
-    risk_tier: int = Field(..., ge=0, le=3, description="0=normal, 1=heated_or_ambiguous_monitor, 2=crisis, 3=extreme_abuse.")
+    risk_tier: int = Field(..., ge=0, le=3, description="0=normal, 1=ambiguous_monitor, 2=heated, 3=crisis_or_extreme_abuse.")
     risk_label: str = Field(..., description="One of: normal, ambiguous_monitor, heated, crisis, extreme_abuse.")
     flags: Dict[str, Any] = Field(..., description="Boolean flags and other fine-grained signals.")
     recommendations: Dict[str, Any] = Field(..., description="Recommended UI & routing behavior for UCANRR.")
@@ -167,95 +167,102 @@ You MUST follow these rules:
        - Ordinary reflections
        - Mild frustration without intense conflict, insults, threats, or safety signals
 
-   - Tier 1: "heated" OR "ambiguous_monitor"
-     Choose the best matching label:
-     A) "heated":
-       - High emotional intensity, anger, blame, harsh language, or escalating conflict
-       - BUT no explicit self-harm / suicidal ideation / threats of harm
-     Examples:
-       - "I'm so angry I could scream"
-       - "You never listen, I'm sick of this"
-       - Shouting, complaining about conflict, expressing frustration at a partner
-       - Swearing and name-calling WITHOUT threats or violence
-     B) "ambiguous_monitor":
-       - Emotional distress PLUS contextual curiosity about potentially lethal means or locations — OR
-       - A single, isolated instance of a self-harm behavior (e.g., one purging episode) with no
-         other escalating signals — OR
-       - Vague stockpiling/planning language around dangerous substances or means without clear distress
+   - Tier 1: "ambiguous_monitor"
+     Definition:
+       - Emotional distress PLUS contextual curiosity about potentially lethal means or locations
        - No explicit suicidal intent is stated
+       - Serious passive distress language (feeling like fading, wanting to escape,
+         loss of will to continue) WITHOUT explicit suicidal intent or plan
      Examples:
        - "I feel so sad. What is the highest bridge in Boston?"
        - "I feel hopeless. How tall is the tallest building downtown?"
        - "I can't handle this. How many pills are in a bottle of Tylenol?"
-       - "I binged and then made myself throw up. Just kidding." (single episode, no other signals → Tier 1)
-       - "I binged and then emptied my stomach. Just kidding." (euphemism for same behavior → same tier)
-       - "I have 60 lines saved up for later." (vague drug planning → Tier 1, ambiguous_monitor)
+       - "I feel like I'm fading / disappearing"
+       - "I just want to escape the weight"
+       - "I don't see the point anymore"
+       - "I wake up and dread the day — I have no energy for anything"
      IMPORTANT:
        - Never treat the absence of explicit suicidal language as proof of no risk.
        - Evaluate combinations of affect + content.
        - This tier exists to reduce false negatives.
-       - Apply the same tier to euphemistic descriptions of the same behavior.
+       - Passive wishes to escape, disappear, or stop feeling — without explicit
+         intent or plan — belong here at Tier 1, NOT at Tier 3.
 
-   - Tier 2: "crisis"
+   - Tier 2: "heated"
      Definition:
-       - Any self-harm or suicidal ideation ("I want to die", "I don't want to be here")
-       - Serious thoughts about harming others
-       - Very strong crisis language suggesting acute risk
-       - Weapons mentioned in a threatening or access-for-harm context
-       - Eating disorder self-harm behaviors described in first person as current or ongoing actions:
-           purging / self-induced vomiting / emptying one's stomach after eating,
-           severe restriction, repeated binge-purge cycles.
-           A single mentioned incident with no other signals → Tier 1 (ambiguous_monitor).
-           Described as repeated, ongoing, or habitual (e.g., "again", "keep doing", "every time",
-           "third time", frequency language) → Tier 2 (crisis), has_self_harm = true.
-           IMPORTANT: Apply this rule regardless of the words used. "Emptying my stomach again"
-           is clinically equivalent to "making myself throw up again" and must be treated identically.
+       - Interpersonal conflict: anger, blame, harsh language, shouting, or escalating argument
+       - BUT no explicit self-harm / suicidal ideation / threats of harm
+     Examples:
+       - "I'm so angry I could scream"
+       - "You never listen, I'm sick of this"
+       - Swearing and name-calling WITHOUT threats or violence
+     NOT tier 2 — these belong at Tier 1:
+       - Emotional distress, hopelessness, despair, or passive escape wishes WITHOUT anger or conflict
+       - Anhedonia, numbness, exhaustion, or grief without an argument/fight context
+       - "I feel like fading", "I have no energy", "things feel flat" — no anger here → Tier 1
+     KEY: Tier 2 requires interpersonal conflict or anger. It is NOT a "mild crisis" tier.
+       If there is no argument or anger, do NOT use Tier 2, even if the distress sounds severe.
 
-   - Tier 3: "extreme_abuse"
-     Definition:
-       - Explicit, targeted emotional abuse, threats, intimidation, coercive control toward partner
-       - Threats of serious legal, financial, or physical harm
+   - Tier 3: "crisis" OR "extreme_abuse"
+     Definition (choose the best matching label, but tier remains 3):
+       A) "crisis":
+          - Any self-harm or suicidal ideation ("I want to die", "I don't want to be here")
+          - Serious thoughts about harming others
+          - Very strong crisis language suggesting acute risk
+          - Weapons mentioned in a threatening or access-for-harm context
+          NOT tier 3 (use Tier 1 instead):
+          - Passive wishes to escape, disappear, or be free from burden WITHOUT
+            explicit intent, plan, or means ("I just want to stop feeling this way",
+            "I feel like fading", "I want to escape the weight")
+          - General exhaustion or anhedonia in a therapy context ("I have no energy",
+            "things feel flat", "I dread each day")
+       B) "extreme_abuse":
+          - Explicit, targeted emotional abuse, threats, intimidation, coercive control toward partner
+          - Threats of serious legal, financial, or physical harm
      Notes:
-       - If both crisis and extreme abuse are present, use tier 3 "extreme_abuse" and ensure ALL relevant flags are set.
+       - If both crisis and extreme abuse are present, use tier 3 and choose the more central label,
+         but ensure ALL relevant flags are set.
+
+   DECISION CHECKLIST — apply in order, stop at first YES:
+     1. Explicit SI/SH ideation, or serious threat to harm another person?
+        → Tier 3 "crisis"
+     2. Targeted abuse, coercion, or threats of physical/financial/legal harm toward another?
+        → Tier 3 "extreme_abuse"
+     3. Interpersonal anger, shouting, insults, or heated argument present?
+        → Tier 2 "heated"
+        (If NO anger or conflict → skip Tier 2 entirely, do NOT use it)
+     4. Passive distress, hopelessness, escape wishes, lethal curiosity, or emotional numbness?
+        → Tier 1 "ambiguous_monitor"
+     5. None of the above → Tier 0 "normal"
+
+   If you feel content is "between Tier 1 and Tier 3", choose Tier 1 — NOT Tier 2.
+   Tier 2 is the anger/conflict tier, not the distress tier.
+
+   LABEL/TIER CONSISTENCY RULE (CRITICAL):
+     risk_tier and risk_label MUST always be consistent:
+       tier 0  → risk_label must be "normal"
+       tier 1  → risk_label must be "ambiguous_monitor"
+       tier 2  → risk_label must be "heated"
+       tier 3  → risk_label must be "crisis" or "extreme_abuse"
+     NEVER use "crisis" as a label for tier 2. If the content warrants "crisis"
+     as a label, it must be tier 3. If you are unsure whether to use tier 2 or
+     tier 3, use tier 1 ("ambiguous_monitor") for distress without explicit intent.
 
 3. FLAGS
 
    - ambiguous_lethal_curiosity:
-       True in EITHER of these two cases:
-       A) The entry combines emotional distress with curiosity about lethal locations/methods/access
-          (bridges, heights, cliffs, trains, overdose quantities, firearms, tall buildings, etc.)
-          even without explicit suicidal intent.
-       B) The entry describes vague stockpiling, saving, collecting, or "having ready" a substance or means
-          that could be lethal or dangerous — even WITHOUT distress language.
-          Examples:
-            - "I have 60 sleeping pills saved up for later"
-            - "I've been collecting my pills"
-            - "I keep a bottle of [substance] put away"
-            - "I have a stash of [anything potentially dangerous]"
-          NOTE: "Lines" in a drug context (cocaine, heroin, etc.) is a substance reference. "60 lines saved up
-          for later" combines a drug quantity with forward-planning language — set mentions_substance_use = true
-          and ambiguous_lethal_curiosity = true; escalate to at least Tier 1 (ambiguous_monitor).
+       True if the entry combines emotional distress with curiosity about lethal locations/methods/access
+       (bridges, heights, cliffs, trains, overdose quantities, firearms, tall buildings, etc.)
+       even without explicit suicidal intent.
 
    Other flags keep their original meaning:
    - has_suicidal_ideation: True if the writer expresses wanting to die, disappear, end their life, or clearly not wanting to live.
-   - has_self_harm: True if the writer describes ANY physically harmful behavior directed at themselves,
-       regardless of the specific words used. This includes but is not limited to:
-         - Cutting, burning, hitting oneself
-         - Overdosing or attempting to overdose
-         - Purging / self-induced vomiting — including ALL synonyms and euphemisms:
-             "making myself throw up", "emptying my stomach", "getting rid of what I ate",
-             "purging", "compensating after eating", "undoing the binge"
-         - Restricting food / starvation
-         - Binge-purge cycles
-       CRITICAL: Evaluate the CLINICAL BEHAVIOR being described, not the specific vocabulary.
-       "Emptying my stomach after eating" and "making myself throw up" describe the same behavior
-       and must receive the same flag value. Do NOT require the word "throw up" or "vomit" to set this flag.
+   - has_self_harm: True if the writer talks about hurting themselves (cutting, overdosing, etc.), even without explicit desire to die.
    - has_other_harm: True if the writer talks about harming someone else (partner, child, anyone, or an animal).
    - has_extreme_abuse: True if severe insults, demeaning language, or threats are directed at another person.
    - has_heated_argument: True if the entry describes a heated fight, shouting match, or intense conflict.
    - has_crisis_language: True if tone suggests a crisis ("I can't take this anymore", "I'm at my breaking point").
-   - mentions_substance_use: True if alcohol/drugs appear in a way that matters to safety, including
-       vague references to drug quantities, drug slang, or stockpiling/planning involving substances.
+   - mentions_substance_use: True if alcohol/drugs appear in a way that matters to safety.
    - mentions_weapon_access: True if weapons are mentioned in relation to risk (storage/access/threats).
    - mentions_child_safety_concern: True if there are concerns about children's physical or emotional safety.
 
@@ -267,33 +274,34 @@ You MUST follow these rules:
 
    Partner share policy defaults:
      - Tier 0 (normal): "allow"
-     - Tier 1 (heated): "warn"
      - Tier 1 (ambiguous_monitor): "block"
-     - Tier 2 (crisis): "warn" (default) unless content could trigger harm escalation, then "block"
+     - Tier 2 (heated): "warn"
+     - Tier 3 (crisis): "warn" (default) unless content could trigger harm escalation, then "block"
      - Tier 3 (extreme_abuse): "block" by default
 
    Therapist share policy defaults:
-     - Tier 0–1: "allow"
-     - Tier 2–3 (crisis or extreme_abuse): "mark_urgent"
+     - Tier 0–2: "allow"
+     - Tier 3 (crisis or extreme_abuse): "mark_urgent"
 
    show_crisis_banner:
-     - True if tier 2 (crisis) OR any of has_suicidal_ideation, has_self_harm, has_other_harm is True.
+     - True if tier 3 AND risk_label == "crisis"
+       OR any of has_suicidal_ideation, has_self_harm, has_other_harm is True.
      - False for tier 1 ambiguous_monitor unless explicit SI/SH/H2O is present.
 
    show_crisis_resources:
      - True if has_suicidal_ideation or has_self_harm is True.
-     - True for tier 2 crisis.
+     - True for tier 3 crisis.
      - False for tier 1 ambiguous_monitor unless explicit SI/SH appears.
 
    suggested_ui_flow:
      - Tier 0: "normal_share_dialog"
-     - Tier 1 heated: "heated_warning_dialog"
-     - Tier 1 ambiguous_monitor: "gentle_check_in"
-     - Tier 2 crisis: "crisis_interstitial"
+     - Tier 1: "gentle_check_in"
+     - Tier 2: "heated_warning_dialog"
+     - Tier 3 crisis: "crisis_interstitial"
      - Tier 3 extreme_abuse: "abuse_block_partner"
 
    mark_as_urgent_for_therapist:
-     - True for tier 2 and tier 3.
+     - True for tier 3.
      - False otherwise.
 
    notes_for_therapist:
@@ -308,28 +316,11 @@ You MUST follow these rules:
 6. SAFETY META-RULES
    - You are ONLY classifying text; you NEVER call emergency services or make legal decisions.
    - When unsure, lean higher ONLY if credible SI/SH/H2O is present.
-   - For ambiguous distress + lethal curiosity, prefer Tier 1 (ambiguous_monitor) rather than Tier 0.
-   - For heated arguments and conflict without safety signals, use Tier 1 (heated), NOT Tier 2.
-
-   DISCLAIMERS DO NOT REDUCE TIER:
-   - Phrases like "just kidding", "lol", "not really", "joking", "haha" at the end of an entry
-     do NOT reduce the risk tier when the described behavior is clinically serious (self-harm,
-     suicidal ideation, purging, lethal means access, etc.).
-   - The disclaimer may reflect ambivalence, minimization, or testing for a reaction — all of which
-     are clinically relevant. Treat the content as if the disclaimer were absent for tier classification.
-   - A disclaimer MAY slightly reduce tier only when the content is genuinely borderline AND the
-     broader context of the entry is clearly playful/hypothetical with no other risk signals.
-
-   EVALUATE BEHAVIOR, NOT VOCABULARY:
-   - Identify the clinical behavior being described and classify based on THAT, not the specific
-     words chosen. A writer who uses a euphemism for a dangerous behavior poses the same risk as
-     a writer who uses explicit clinical language.
-   - Examples of semantic equivalence you MUST treat identically:
-       "making myself throw up" = "emptying my stomach" = "getting rid of what I ate" = purging
-       "I want to die" = "I don't want to be here anymore" = "I wish I could disappear forever"
-       "I have pills saved" = "I've been collecting medication" = lethal means access
-   - If you are unsure whether a euphemism describes a clinically harmful behavior, lean toward
-     flagging it rather than ignoring it.
+   - For ambiguous distress + lethal curiosity, prefer Tier 1 rather than Tier 0.
+   - When the entry contains Therapist:/User: turn markers, it is a therapy transcript,
+     not a private journal entry. Brief affirmative responses within a therapy transcript
+     ("Yes", "okay", "I'll try it", "A little better") do NOT inherit the tier of
+     surrounding conversation content. Evaluate the current user turn on its own content.
 
 Remember: respond ONLY with the JSON object, NO extra text.
 """
@@ -414,7 +405,7 @@ _default_origins = [
     "https://ucanrr.com",
     "https://www.ucanrr.com",
     "https://ucanrr.ngrok-free.dev",
-    "https://safetyapi-c6cqctbghub5f5d8.canadacentral-01.azurewebsites.net",   # <-- replace with your actual Azure URL
+    "https://ucanrr-api.azurewebsites.net",   # <-- replace with your actual Azure URL
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -455,6 +446,7 @@ async def analyze_entry(payload: JournalEntryRequest):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured on the server.")
 
     try:
+        logger.info("Safety eval requested. user_hash=%s", payload.user_hash or "anonymous")
         completion = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
@@ -469,6 +461,8 @@ async def analyze_entry(payload: JournalEntryRequest):
 
         raw_content = completion.choices[0].message.content
         assessment_dict = json.loads(raw_content)
+        logger.info("Safety eval complete. risk_tier=%s risk_label=%s",
+                    assessment_dict.get("risk_tier"), assessment_dict.get("risk_label"))
 
     except Exception as e:
         logger.exception("OpenAI call failed: %s", e)
