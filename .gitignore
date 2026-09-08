@@ -18,6 +18,10 @@ results/
 *.csv
 *.xlsx
 
+# CI-generated build identity (written fresh on every deploy)
+BUILD_INFO.txt
+BUILD_PIP_FREEZE.txt
+
 # IDE
 .vscode/
 .idea/

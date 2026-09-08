@@ -1,9 +1,17 @@
+# UCANRR Safety Evaluation API — pinned dependency set for the pilot-study freeze.
+# Every version is exact so the Azure build is reproducible. If any pin is changed,
+# bump SAFETY_CONFIG_VERSION / PIPELINE_VERSION in azure_ucanrr_safety_eval_api.py
+# and re-run the batch validation before re-freezing.
+
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 gunicorn==21.2.0
-pyodbc==5.0.1
 pydantic==2.5.0
-openai>=1.0.0
-pydantic
-python-dotenv
-opencensus-ext-azure
+openai==2.9.0
+python-dotenv==1.0.1
+opencensus-ext-azure==1.1.13
+
+# Present in the historical environment but not imported by the deployed module
+# (azure_ucanrr_safety_eval_api.py). Pinned, not removed, to keep the build env
+# identical to what was in place before the freeze.
+pyodbc==5.0.1

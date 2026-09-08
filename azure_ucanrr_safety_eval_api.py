@@ -31,11 +31,15 @@ Azure startup command (App Service > Configuration > Startup Command):
 
 Environment variables to set in Azure App Service > Configuration > App Settings:
     OPENAI_API_KEY         = <your OpenAI key — store in Key Vault and reference here>
-    OPENAI_MODEL           = gpt-4o          (optional, defaults to gpt-4o)
+    OPENAI_MODEL           = gpt-4o-2024-08-06   (pilot freeze: pin a dated snapshot, never the "gpt-4o" alias)
     ALLOWED_ORIGINS        = https://ucanrr.com,https://www.ucanrr.com  (optional override)
     APPLICATIONINSIGHTS_CONNECTION_STRING = <from Azure Monitor>  (optional)
+    APP_BUILD              = <git SHA or tag>    (optional; CI writes BUILD_INFO.txt instead)
+
+Freeze baseline for the pilot study is exposed at GET /version and recorded in FREEZE.md.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -86,7 +90,47 @@ if not _api_key:
 
 client = OpenAI(api_key=_api_key or "")
 
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o")
+# Frozen model for the pilot study. Use a dated snapshot, NOT the floating "gpt-4o"
+# alias, so the model cannot change under the study. The Azure App Setting
+# OPENAI_MODEL overrides this and MUST be set to the same pinned snapshot in the
+# frozen environment. Confirm this matches the snapshot the "gpt-4o" alias
+# resolved to during batch validation before relying on it.
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-2024-08-06")
+
+
+# ---------------------------------------------------------------------------
+# Freeze identifiers — baseline recorded for the pilot study.
+# Bump the relevant version string on ANY change to that component.
+# ---------------------------------------------------------------------------
+
+APP_VERSION = "1.2.0"                       # FastAPI app version (also below)
+PROMPT_VERSION = "2026-07-01"               # scoring/system prompt revision
+PIPELINE_VERSION = "1.2.0-single-stage-openai"   # request flow: validate -> 1 LLM call -> parse
+SAFETY_CONFIG_VERSION = "2026-07-01"        # prompt rules + JSON schema + call params
+
+
+def _load_build_info() -> Dict[str, str]:
+    """Build identity, written by CI into BUILD_INFO.txt at deploy time.
+
+    Falls back to the APP_BUILD env var, then to "unset" when the service is
+    run outside the deployment pipeline (e.g. local dev).
+    """
+    info: Dict[str, str] = {}
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BUILD_INFO.txt")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    info[key.strip()] = value.strip()
+    except OSError:
+        pass
+    info.setdefault("commit", os.environ.get("APP_BUILD", "unset"))
+    return info
+
+
+BUILD_INFO = _load_build_info()
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +441,17 @@ SAFETY_JSON_SCHEMA: Dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
+# Content hashes — computed at import so a drifted prompt or schema is visible
+# via GET /version without trusting the hand-maintained version strings above.
+# ---------------------------------------------------------------------------
+
+PROMPT_SHA256 = hashlib.sha256(SYSTEM_PROMPT.encode("utf-8")).hexdigest()
+SAFETY_SCHEMA_SHA256 = hashlib.sha256(
+    json.dumps(SAFETY_JSON_SCHEMA, sort_keys=True, separators=(",", ":")).encode("utf-8")
+).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 
@@ -419,7 +474,7 @@ allowed_origins = (
 
 app = FastAPI(
     title="UCANRR Safety Evaluation API",
-    version="1.2.0",
+    version=APP_VERSION,
     description="Evaluates UCANRR journal entries for crisis and abuse risk using the OpenAI API. Azure-hosted edition.",
 )
 
@@ -476,6 +531,36 @@ async def health_check():
     """Azure App Service health probe endpoint."""
     api_key_set = bool(os.environ.get("OPENAI_API_KEY"))
     return {"status": "ok", "openai_key_configured": api_key_set, "model": OPENAI_MODEL}
+
+
+@app.get("/version")
+async def version_info():
+    """Freeze baseline — the identifiers recorded for the pilot study.
+
+    Every field here is derived from the running code, so this endpoint is the
+    source of truth for "what is actually deployed" during the study.
+    """
+    return {
+        "app_version": APP_VERSION,
+        "build": BUILD_INFO,
+        "model": OPENAI_MODEL,
+        "prompt_version": PROMPT_VERSION,
+        "prompt_sha256": PROMPT_SHA256,
+        "pipeline_version": PIPELINE_VERSION,
+        "safety_config_version": SAFETY_CONFIG_VERSION,
+        "safety_schema_sha256": SAFETY_SCHEMA_SHA256,
+        "llm_call_params": {
+            "temperature": 0,
+            "response_format": "json_schema (strict)",
+            "store": False,
+        },
+        "on_entry_failure": (
+            "empty entry_text -> HTTP 400; missing OPENAI_API_KEY -> HTTP 500; "
+            "any OpenAI/parse/validation exception -> HTTP 500 "
+            "'Error calling OpenAI safety model: <detail>'. No retry, no fallback "
+            "assessment, no default tier; the request returns no assessment."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -50,6 +50,23 @@ jobs:
           source antenv/bin/activate
           pip install -r requirements.txt
 
+      - name: Record build identity
+        run: |
+          {
+            echo "commit=${{ github.sha }}"
+            echo "ref=${{ github.ref_name }}"
+            echo "run_id=${{ github.run_id }}"
+            echo "run_number=${{ github.run_number }}"
+            echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > BUILD_INFO.txt
+          cat BUILD_INFO.txt
+
+      - name: Freeze the resolved dependency set
+        run: |
+          source antenv/bin/activate
+          pip freeze > BUILD_PIP_FREEZE.txt
+          cat BUILD_PIP_FREEZE.txt
+
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
       - name: Upload artifact for deployment jobs
