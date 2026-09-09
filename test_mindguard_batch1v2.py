@@ -204,6 +204,11 @@ def is_tier_direction_correct(label: str, pred_tier: int) -> bool:
 
 # ---------- API call ----------
 
+# (connect, read) seconds. A stalled response now fails the read after 60s
+# instead of hanging until some far-larger proxy/socket timeout.
+HTTP_TIMEOUT = (10, 60)
+
+
 def analyze_entry(
     entry_text: str,
     user_hash: Optional[str] = None,
@@ -215,7 +220,22 @@ def analyze_entry(
 
     attempt = 0
     while True:
-        resp = requests.post(API_URL, json=payload, timeout=60)
+        try:
+            resp = requests.post(API_URL, json=payload, timeout=HTTP_TIMEOUT)
+        except requests.exceptions.RequestException as exc:
+            # Connection reset / read timeout / chunked-encoding error, etc.
+            # Retry within the same budget rather than failing the whole row.
+            if attempt >= max_retries:
+                raise RuntimeError(
+                    "network error after %d retries: %s" % (max_retries, exc)
+                )
+            wait_s = min(30.0, 2 ** attempt)
+            print("\n  [network: %s] retry %d/%d in %.1fs ..." % (
+                exc.__class__.__name__, attempt + 1, max_retries, wait_s
+            ), end=" ", flush=True)
+            time.sleep(wait_s)
+            attempt += 1
+            continue
 
         if resp.status_code == 429 and attempt < max_retries:
             # Honor the server's Retry-After if present, else back off exponentially.
@@ -367,12 +387,14 @@ def run_rows(
 
             error_msg  = ""
             assessment = None
+            t0 = time.monotonic()
             try:
                 assessment = analyze_entry(
                     entry_text,
                     user_hash="mindguard-row-%d" % idx,
                     max_retries=max_retries,
                 )
+                elapsed = time.monotonic() - t0
                 pred_tier  = assessment.get("risk_tier", "?")
                 ui_flow    = assessment.get("recommendations", {}).get("suggested_ui_flow", "?")
                 tier_ok    = is_tier_correct(
@@ -386,15 +408,19 @@ def run_rows(
                     direction_count += 1
                 evaluated += 1
                 status = "CORRECT" if tier_ok else ("PARTIAL" if dir_ok else "MISS")
-                print("OK  tier=%s  ui_flow=%s  %s" % (pred_tier, ui_flow, status))
+                print("OK %5.1fs  tier=%s  ui_flow=%s  %s" % (
+                    elapsed, pred_tier, ui_flow, status
+                ))
             except Exception as exc:
+                elapsed = time.monotonic() - t0
                 error_msg = str(exc)
                 error_count += 1
-                print("ERROR: %s" % error_msg)
+                print("ERROR %5.1fs: %s" % (elapsed, error_msg))
 
             writer.writerow(build_output_row(
                 idx, row, entry_text, parsed_msg_count, mode, assessment, error_msg
             ))
+            f.flush()  # keep the CSV current row-by-row (survives Ctrl-C / kill)
 
             if delay > 0:
                 time.sleep(delay)
