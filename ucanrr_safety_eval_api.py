@@ -390,7 +390,12 @@ async def analyze_entry(payload: JournalEntryRequest):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "openai_model": OPENAI_MODEL, "api_version": app.version}
+    return {
+        "status": "ok",
+        "openai_key_configured": bool(os.environ.get("OPENAI_API_KEY")),
+        "model": OPENAI_MODEL,
+        "api_version": app.version,
+    }
 
 
 if __name__ == "__main__":
