@@ -12,6 +12,9 @@ Usage:
     python test_mindguard_batch1v2.py --label unsafe_self_harm_risk
     python test_mindguard_batch1v2.py --label unsafe_harm_to_others
     python test_mindguard_batch1v2.py --mode last             # use only final user message
+    python test_mindguard_batch1v2.py --mode last --min-entry-words 8 --drop-acks
+                                                             # production-representative:
+                                                             # single self-contained entries only
     python test_mindguard_batch1v2.py --csv path/to/file.csv  # different input file
 """
 
@@ -108,6 +111,22 @@ def format_as_transcript(messages: List[Dict[str, str]]) -> str:
 # ---------- Label helpers ----------
 
 _UNSAFE_LABELS = {"unsafe_self_harm_risk", "unsafe_harm_to_others"}
+
+# Bare acknowledgments: a user_message that reduces to only these tokens carries no
+# journal content of its own and is unjudgeable without conversational context.
+_ACK_TOKENS = {
+    "yes", "yeah", "yep", "yup", "no", "nope", "ok", "okay", "k", "sure",
+    "thanks", "thank", "you", "thx", "ty", "please", "pls", "maybe", "i",
+    "guess", "so", "right", "correct", "true", "fine", "alright", "got", "it",
+    "mmm", "hmm", "uh", "um", "oh", "well", "and", "a", "little", "bit",
+}
+_ACK_RE = re.compile(r"[a-z']+")
+
+
+def is_bare_ack(text: str) -> bool:
+    """True if the message is only filler/acknowledgment words (e.g. 'Yes', 'ok thanks')."""
+    words = _ACK_RE.findall(text.lower())
+    return bool(words) and all(w in _ACK_TOKENS for w in words)
 
 
 def is_tier_correct(
@@ -392,6 +411,22 @@ def parse_args() -> argparse.Namespace:
         help="full = whole conversation as entry_text (default); last = final user message only",
     )
     parser.add_argument(
+        "--min-entry-words", type=int, default=0,
+        help=(
+            "Skip rows whose user_message has fewer than N words. Use with --mode last "
+            "to drop conversational fragments (\"Yes\", \"It sounds ok.\") that aren't "
+            "journal-entry-shaped and can't be judged without context. ~8-10 is a "
+            "reasonable production-representative cutoff (default: 0 = keep all)."
+        ),
+    )
+    parser.add_argument(
+        "--drop-acks", action="store_true",
+        help=(
+            "Also skip rows whose user_message is a bare acknowledgment "
+            "(\"yes\", \"ok\", \"thanks\", \"sure\", etc.), regardless of word count."
+        ),
+    )
+    parser.add_argument(
         "--delay", type=float, default=0.5,
         help="Seconds to pause between API calls, to avoid rate-limiting (default: 0.5)",
     )
@@ -427,6 +462,25 @@ def main() -> None:
     if args.label:
         rows = [r for r in rows if r.get("label", "").strip() == args.label]
         print("Filtered to label='%s': %d rows" % (args.label, len(rows)))
+
+    # Filter out rows that aren't journal-entry-shaped: too-short user messages
+    # and/or bare acknowledgments. These depend on conversational context the
+    # annotators had but the single-entry API doesn't, so scoring them is unfair.
+    if args.min_entry_words > 0 or args.drop_acks:
+        before = len(rows)
+        def keep(r: Dict[str, str]) -> bool:
+            um = (r.get("user_message") or "").strip()
+            if len(um.split()) < args.min_entry_words:
+                return False
+            if args.drop_acks and is_bare_ack(um):
+                return False
+            return True
+        rows = [r for r in rows if keep(r)]
+        print("Filtered to journal-entry-shaped rows (min_words=%d%s): %d rows (dropped %d)" % (
+            args.min_entry_words,
+            ", drop_acks" if args.drop_acks else "",
+            len(rows), before - len(rows),
+        ))
 
     # Apply start offset (1-based)
     start_idx = max(1, args.start) - 1
