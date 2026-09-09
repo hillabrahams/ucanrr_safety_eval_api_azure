@@ -403,6 +403,8 @@ def run_rows(
     print("Run complete.")
     print("  Processed        : %d" % total_count)
     print("  Evaluated        : %d" % evaluated)
+    print("  Scoring          : range-based; safe+tier2 counts correct when heated is")
+    print("                     the only elevated flag (Fix 4)")
     print("  Tier correct     : %d/%d  (%.1f%%)" % (
         correct_count, evaluated, 100 * correct_count / evaluated if evaluated else 0
     ))
