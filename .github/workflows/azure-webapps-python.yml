@@ -26,10 +26,21 @@ env:
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - 'test_*.py'
+      - '**/*.md'
+      - 'results/**'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# Only one deploy to the App Service at a time; supersede stale in-flight runs
+# instead of colliding with them at Azure (Kudu allows one deployment at once).
+concurrency:
+  group: azure-deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
