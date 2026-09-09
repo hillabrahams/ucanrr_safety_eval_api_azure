@@ -486,6 +486,8 @@ def main() -> None:
     print("Output : %s" % out_path)
     print("API    : %s" % API_URL)
     print("Model  : %s" % API_MODEL)
+    print("Scoring: range-based; safe+tier2 counts correct when heated is the only "
+          "elevated flag (Fix 4)")
 
     rows = load_csv(args.csv)
     print("Total rows in CSV: %d" % len(rows))
