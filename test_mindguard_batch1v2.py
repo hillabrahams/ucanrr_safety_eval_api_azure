@@ -26,7 +26,11 @@ from typing import Any, Dict, List, Optional
 import requests
 
 API_URL = "https://safetyapi-c6cqctbghub5f5d8.canadacentral-01.azurewebsites.net/safety/analyze_entry"
+API_BASE = API_URL.rsplit("/safety/", 1)[0]
 DEFAULT_CSV = "full-dataset-mindguard-test-set-training-data.csv"
+
+# Populated at startup from the API's /health endpoint; recorded in each output row.
+API_MODEL = "unknown"
 
 OUTPUT_FIELDS = [
     # --- from input CSV ---
@@ -34,6 +38,7 @@ OUTPUT_FIELDS = [
     "label",
     "user_message",
     "annotator_labels",
+    "api_model",
     # --- parsing meta ---
     "parsed_msg_count",
     "entry_mode",
@@ -189,6 +194,16 @@ def analyze_entry(
         return resp.json()
 
 
+def fetch_api_model() -> str:
+    """Ask the API which OpenAI model it is configured to use (via /health)."""
+    try:
+        resp = requests.get(API_BASE + "/health", timeout=15)
+        resp.raise_for_status()
+        return resp.json().get("openai_model", "unknown")
+    except Exception as exc:
+        return "unavailable (%s)" % exc
+
+
 # ---------- CSV loading ----------
 
 def load_csv(path: str) -> List[Dict[str, str]]:
@@ -216,6 +231,7 @@ def build_output_row(
         "label":                 true_label,
         "user_message":          user_message,
         "annotator_labels":      input_row.get("annotator_labels", ""),
+        "api_model":             API_MODEL,
         "parsed_msg_count":      parsed_msg_count,
         "entry_mode":            entry_mode,
         "entry":                 entry_text[:200],
@@ -386,10 +402,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    global API_MODEL
+
     args = parse_args()
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_path  = "results/mindguard_result_%s.csv" % timestamp
+
+    API_MODEL = fetch_api_model()
 
     print("=" * 80)
     print("UCANRR Safety UI Simulator - Mindguard Testset Edition")
@@ -397,6 +417,7 @@ def main() -> None:
     print("Input  : %s" % args.csv)
     print("Output : %s" % out_path)
     print("API    : %s" % API_URL)
+    print("Model  : %s" % API_MODEL)
 
     rows = load_csv(args.csv)
     print("Total rows in CSV: %d" % len(rows))
