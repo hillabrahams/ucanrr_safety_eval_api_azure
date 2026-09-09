@@ -44,8 +44,8 @@ load_dotenv() # Load .env file
 client = OpenAI(api_key="***REMOVED_API_KEY***") 
 #Choose your model (you can swap to gpt-4.1, gpt-4o, etc.)
 #OPENAI_MODEL = "gpt-5.1"
-OPENAI_MODEL = "gpt-4o"
-
+#OPENAI_MODEL = "gpt-4o"
+OPENAI_MODEL = "gpt-4.1-2025-04-14"
 
 # ---------- Pydantic models ----------
 
@@ -390,7 +390,7 @@ async def analyze_entry(payload: JournalEntryRequest):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "openai_model": OPENAI_MODEL, "api_version": app.version}
 
 
 if __name__ == "__main__":
