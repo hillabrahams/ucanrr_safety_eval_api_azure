@@ -199,7 +199,8 @@ def fetch_api_model() -> str:
     try:
         resp = requests.get(API_BASE + "/health", timeout=15)
         resp.raise_for_status()
-        return resp.json().get("openai_model", "unknown")
+        body = resp.json()
+        return body.get("model") or body.get("openai_model") or "unknown"
     except Exception as exc:
         return "unavailable (%s)" % exc
 
