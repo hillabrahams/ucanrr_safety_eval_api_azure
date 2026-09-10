@@ -88,7 +88,19 @@ _api_key = os.environ.get("OPENAI_API_KEY")
 if not _api_key:
     logger.warning("OPENAI_API_KEY not set at startup. Requests will fail until it is configured.")
 
-client = OpenAI(api_key=_api_key or "")
+# Per-request ceiling for the OpenAI call. Kept well under the gunicorn worker
+# timeout (`--timeout 120`) so a slow/stalled model call returns a clean HTTP 500
+# with an error body, instead of the worker being SIGKILLed and the caller
+# getting a 502 with no body. Worst case = OPENAI_TIMEOUT_S * (OPENAI_MAX_RETRIES
+# + 1) + backoff  ->  ~90 s < 120 s.
+OPENAI_TIMEOUT_S = 25.0
+OPENAI_MAX_RETRIES = 2  # SDK default, pinned explicitly
+
+client = OpenAI(
+    api_key=_api_key or "",
+    timeout=OPENAI_TIMEOUT_S,
+    max_retries=OPENAI_MAX_RETRIES,
+)
 
 # Frozen model for the pilot study. Use a dated snapshot, NOT the floating "gpt-4o"
 # alias, so the model cannot change under the study. The Azure App Setting
@@ -103,10 +115,10 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-2024-08-06")
 # Bump the relevant version string on ANY change to that component.
 # ---------------------------------------------------------------------------
 
-APP_VERSION = "1.2.0"                       # FastAPI app version (also below)
+APP_VERSION = "1.2.1"                       # FastAPI app version (also below)
 PROMPT_VERSION = "2026-07-01"               # scoring/system prompt revision
-PIPELINE_VERSION = "1.2.0-single-stage-openai"   # request flow: validate -> 1 LLM call -> parse
-SAFETY_CONFIG_VERSION = "2026-07-01"        # prompt rules + JSON schema + call params
+PIPELINE_VERSION = "1.2.1-single-stage-openai"   # request flow: validate -> 1 LLM call (bounded timeout) -> parse
+SAFETY_CONFIG_VERSION = "2026-07-01"        # prompt rules + JSON schema + call params (unchanged in 1.2.1)
 
 
 def _load_build_info() -> Dict[str, str]:
@@ -553,12 +565,19 @@ async def version_info():
             "temperature": 0,
             "response_format": "json_schema (strict)",
             "store": False,
+            "timeout_s": OPENAI_TIMEOUT_S,
+            "max_retries": OPENAI_MAX_RETRIES,
         },
         "on_entry_failure": (
-            "empty entry_text -> HTTP 400; missing OPENAI_API_KEY -> HTTP 500; "
-            "any OpenAI/parse/validation exception -> HTTP 500 "
-            "'Error calling OpenAI safety model: <detail>'. No retry, no fallback "
-            "assessment, no default tier; the request returns no assessment."
+            "malformed body -> HTTP 422; empty entry_text -> HTTP 400; "
+            "missing OPENAI_API_KEY -> HTTP 500; OpenAI/parse exception -> HTTP 500 "
+            "'Error calling OpenAI safety model: <detail>'; response-model "
+            "validation error -> generic HTTP 500. Application adds no retry "
+            "(OpenAI SDK: %d automatic retries); OpenAI call bounded at %.0fs, "
+            "under the gunicorn 120s worker timeout. No fallback assessment, no "
+            "default tier; the request returns no assessment. "
+            "See docs/ENTRY_FAILURE_BEHAVIOR.md."
+            % (OPENAI_MAX_RETRIES, OPENAI_TIMEOUT_S)
         ),
     }
 
