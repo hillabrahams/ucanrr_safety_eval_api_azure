@@ -202,6 +202,38 @@ def is_tier_direction_correct(label: str, pred_tier: int) -> bool:
     return False
 
 
+def cohens_kappa_binary(records: List[Any], lenient: bool) -> float:
+    """
+    Cohen's kappa for safe-vs-unsafe agreement between the gold label and the API.
+
+    records: list of (gold_is_unsafe: bool, pred_tier: int, has_beyond_heated_flag: bool)
+
+    Predicted "unsafe" iff:
+      - pred_tier >= 3, or
+      - pred_tier == 2 and (strict: always) / (lenient: only if a beyond-heated
+        flag is set) -- lenient mirrors the Fix 4 scoring boundary.
+    """
+    n = len(records)
+    if n == 0:
+        return float("nan")
+    a = b = c = d = 0  # gold-safe/pred-safe, gold-safe/pred-unsafe, gold-unsafe/pred-safe, both-unsafe
+    for gold_unsafe, tier, beyond in records:
+        pred_unsafe = tier >= 3 or (tier == 2 and (beyond or not lenient))
+        if not gold_unsafe and not pred_unsafe:
+            a += 1
+        elif not gold_unsafe and pred_unsafe:
+            b += 1
+        elif gold_unsafe and not pred_unsafe:
+            c += 1
+        else:
+            d += 1
+    po = (a + d) / n
+    p_gold_unsafe = (c + d) / n
+    p_pred_unsafe = (b + d) / n
+    pe = p_gold_unsafe * p_pred_unsafe + (1 - p_gold_unsafe) * (1 - p_pred_unsafe)
+    return 1.0 if pe == 1.0 else (po - pe) / (1 - pe)
+
+
 # ---------- API call ----------
 
 # (connect, read) seconds. A stalled response now fails the read after 60s
@@ -359,6 +391,7 @@ def run_rows(
     correct_count = 0
     direction_count = 0
     evaluated     = 0
+    kappa_records: List[Any] = []  # (gold_is_unsafe, pred_tier, has_beyond_heated_flag)
 
     import os
     os.makedirs("results", exist_ok=True)
@@ -408,6 +441,12 @@ def run_rows(
                     direction_count += 1
                 evaluated += 1
                 status = "CORRECT" if tier_ok else ("PARTIAL" if dir_ok else "MISS")
+                _flags = assessment.get("flags") or {}
+                kappa_records.append((
+                    true_label in _UNSAFE_LABELS,
+                    pred_tier if isinstance(pred_tier, int) else 0,
+                    any(_flags.get(k) for k in _BEYOND_HEATED_FLAGS),
+                ))
                 print("OK %5.1fs  tier=%s  ui_flow=%s  %s" % (
                     elapsed, pred_tier, ui_flow, status
                 ))
@@ -437,6 +476,11 @@ def run_rows(
     print("  Direction correct: %d/%d  (%.1f%%)" % (
         direction_count, evaluated, 100 * direction_count / evaluated if evaluated else 0
     ))
+    k_lenient = cohens_kappa_binary(kappa_records, lenient=True)
+    k_strict  = cohens_kappa_binary(kappa_records, lenient=False)
+    print("  Cohen's kappa    : %.3f lenient / %.3f strict" % (k_lenient, k_strict))
+    print("                     (safe-vs-unsafe, gold vs API; lenient = heated-only")
+    print("                      tier 2 counts as a safe prediction, per Fix 4)")
     print("  Errors           : %d" % error_count)
     print("  Output           : %s" % out_path)
     print("=" * 80)
